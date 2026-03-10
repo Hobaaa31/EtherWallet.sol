@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Swapbot</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div>
+        <div class="title">Swapbot</div>
+        <div class="subtitle" id="subtitle">Fast opportunities. One tap action.</div>
+      </div>
+    </header>
+
+    <section id="screen-onboarding" class="screen">
+      <div class="card">
+        <div class="title-sm">⚡ Start in 20 seconds</div>
+        <ol class="mini-steps">
+          <li><b>Feed</b>: scan opportunities fast</li>
+          <li><b>Watchlist</b>: track tokens/wallets</li>
+          <li><b>Alerts + Trade</b>: open signal and execute safely</li>
+        </ol>
+        <div class="three-col">
+          <button id="onboardFeed" class="secondary small">Open Feed</button>
+          <button id="onboardWatch" class="secondary small">Open Watchlist</button>
+          <button id="onboardPortfolio" class="secondary small">Open Portfolio</button>
+        </div>
+        <button id="onboardingDone" class="primary">Got it, open Feed</button>
+      </div>
+    </section>
+
+    <section id="screen-home" class="screen hidden">
+      <div class="card compact">
+        <div class="row-inline">
+          <div class="title-sm">Feed</div>
+          <span class="tag">Live</span>
+        </div>
+      </div>
+      <div id="feedList"></div>
+    </section>
+
+    <section id="screen-token" class="screen hidden">
+      <div class="card">
+        <div class="row-inline"><div class="title-sm" id="tokenTitle">Token Detail</div><button id="tokenWatchToggle" class="secondary small">Watch</button></div>
+        <div class="decision-grid">
+          <div><span class="label">Entry Zone</span><b id="entryZone">$0.000012 - $0.000013</b></div>
+          <div><span class="label">Momentum</span><b id="momentumState">Breakout</b></div>
+          <div><span class="label">Liquidity</span><b id="liquidityState">Stable +12%</b></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="title-sm">Decision Card</div>
+        <div id="decisionNote" class="muted">Smart wallet accumulation + healthy liquidity.</div>
+        <button id="tokenTradeNow" class="primary">Trade Entry</button>
+      </div>
+    </section>
+
+    <section id="screen-trade" class="screen hidden">
+      <div class="card">
+        <div class="title-sm">Trade</div>
+        <div class="row"><label>Token (symbol or 0x)</label><input id="tokenInput" placeholder="PEPE or 0x..." /></div>
+        <div class="row"><label>From</label><select id="fromSymbol"><option>ETH</option><option>SOL</option><option>USDC</option></select></div>
+        <div class="row two-col"><input id="amount" type="number" min="0" step="0.0001" placeholder="0.1" /><button id="quoteBtn" class="primary">Get Quote</button></div>
+        <div class="quote" id="entryPrice">Expected entry: —</div>
+        <div class="quote" id="protectionState">Protection: Safe mode active</div>
+        <div class="row two-col"><button id="watchBtn" class="secondary">Watch</button><button id="confirmBtn" class="primary" disabled>Confirm</button></div>
+        <div class="row"><button id="tradeShareBtn" class="secondary">Share Trade</button></div>
+        <div id="quote" class="quote muted">Quote panel</div>
+      </div>
+      <div class="card"><div class="title-sm">Execution State</div><div id="tracker" class="muted">Waiting</div></div>
+    </section>
+
+    <section id="screen-wallet" class="screen hidden">
+      <div class="card">
+        <div class="row-inline"><div class="title-sm">Portfolio</div><span class="tag">Active</span></div>
+        <ul id="positionsList" class="list"></ul>
+      </div>
+      <div class="card">
+        <div class="title-sm">Quick Protection</div>
+        <div class="three-col">
+          <button class="secondary" id="protectReduce">Reduce</button>
+          <button class="secondary" id="protectExit">Exit</button>
+          <button class="secondary" id="protectHold">Hold</button>
+        </div>
+        <div id="portfolioFeedback" class="muted"></div>
+      </div>
+    </section>
+
+    <section id="screen-hub" class="screen hidden">
+      <div class="card">
+        <div class="title-sm">Follow / Alpha</div>
+        <ul id="followList" class="list"></ul>
+      </div>
+      <div class="card">
+        <div class="title-sm">Smart Alerts</div>
+        <ul id="alertsList" class="list"></ul>
+      </div>
+    </section>
+
+    <section id="screen-ref" class="screen hidden">
+      <div class="card">
+        <div class="title-sm">Watchlist</div>
+        <div class="row two-col"><input id="walletWatchInput" placeholder="0x wallet..." /><button id="watchWalletBtn" class="secondary">Watch Wallet</button></div>
+        <ul id="watchList" class="list"></ul>
+      </div>
+      <div class="card">
+        <div class="title-sm">Invite Friends</div>
+        <div id="inviteLinkBox" class="quote muted">Generate your invite link</div>
+        <button id="inviteShareBtn" class="primary">Share Invite</button>
+      </div>
+      <div class="card">
+        <div class="title-sm">Beta Feedback</div>
+        <div class="row two-col">
+          <select id="feedbackType">
+            <option value="feedback">feedback</option>
+            <option value="bug">bug</option>
+            <option value="idea">idea</option>
+          </select>
+          <button id="feedbackSubmit" class="secondary">Send</button>
+        </div>
+        <div class="row"><input id="feedbackText" placeholder="Your message..." /></div>
+        <div id="feedbackStatus" class="muted"></div>
+      </div>
+    </section>
+
+    <nav class="bottom-nav">
+      <button class="nav-btn" data-screen="home">Feed</button>
+      <button class="nav-btn" data-screen="token">Token</button>
+      <button class="nav-btn" data-screen="trade">Trade</button>
+      <button class="nav-btn" data-screen="wallet">Portfolio</button>
+      <button class="nav-btn" data-screen="hub">Follow</button>
+      <button class="nav-btn" data-screen="ref">Watchlist</button>
+    </nav>
+  </div>
+  <script src="./app.js"></script>
+</body>
+</html>
