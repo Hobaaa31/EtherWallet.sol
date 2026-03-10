@@ -62,7 +62,7 @@
     <section id="screen-trade" class="screen hidden">
       <div class="card">
         <div class="title-sm">Trade</div>
-        <div class="row"><label>Token (symbol or 0x)</label><input id="tokenInput" placeholder="PEPE or 0x..." /></div>
+        <div class="row"><label>Token (symbol or 0x)</label><input id="tokenInput" placeholder="PEPE or 0x..." /><small class="muted">For contract lookup, paste token 0x address.</small></div>
         <div class="row"><label>From</label><select id="fromSymbol"><option>ETH</option><option>SOL</option><option>USDC</option></select></div>
         <div class="row two-col"><input id="amount" type="number" min="0" step="0.0001" placeholder="0.1" /><button id="quoteBtn" class="primary">Get Quote</button></div>
         <div class="quote" id="entryPrice">Expected entry: —</div>

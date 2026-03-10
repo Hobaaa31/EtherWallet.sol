@@ -2,6 +2,8 @@ const tg = window.Telegram?.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
 const $ = (id) => document.getElementById(id);
 
+const API_BASE_URL = (window.API_BASE_URL || 'https://1318222.xorek.cloud:8000').replace(/\/$/, '');
+
 const state = {
   userId: tg?.initDataUnsafe?.user?.id || 0,
   network: 'base',
@@ -20,7 +22,8 @@ function fmt(n){ return Number(n||0).toLocaleString(undefined,{maximumFractionDi
 
 async function apiFetch(url, options={}){
   const headers = Object.assign({}, options.headers||{}, {'X-Telegram-Init-Data': tg.initData});
-  const res = await fetch(url, {...options, headers});
+  const abs = url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
+  const res = await fetch(abs, {...options, headers});
   let j={}; try{j=await res.json();}catch{}
   if(!res.ok) throw new Error(j.detail||j.error||`HTTP ${res.status}`);
   return j;
@@ -92,11 +95,21 @@ function renderFeed(){
   root.innerHTML = cardSkeleton() + cardSkeleton();
   setTimeout(()=>{
     root.innerHTML = feedMock().map(oppCard).join('') || `<div class='card empty'>No opportunities yet</div>`;
-    document.querySelectorAll('.opp-card, .trade-cta').forEach(el=>el.addEventListener('click', (e)=>{
+    document.querySelectorAll('.opp-card').forEach(el=>el.addEventListener('click', (e)=>{
       const token = e.currentTarget.dataset.token;
       const symbol = e.currentTarget.dataset.symbol;
       openToken(symbol, token);
       track('opportunity_open', {symbol, token});
+    }));
+    document.querySelectorAll('.trade-cta').forEach(el=>el.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      const token = e.currentTarget.dataset.token;
+      const symbol = e.currentTarget.dataset.symbol;
+      state.selectedToken = {symbol, address: token};
+      $('tokenInput').value = token;
+      switchScreen('trade');
+      lookupToken(token);
+      track('trade_attempt', {source:'feed_trade_cta', symbol, token});
     }));
     document.querySelectorAll('.opp-share').forEach(el=>el.addEventListener('click', (e)=>{
       e.stopPropagation();
@@ -109,17 +122,44 @@ function renderFeed(){
   }, 250);
 }
 
+async function lookupToken(address){
+  if(!address?.startsWith('0x')) return null;
+  try{
+    const t = await apiFetch(`/api/token/${address}?network=${state.network}`);
+    if(t?.ok){
+      const symbol = t.symbol || 'TOKEN';
+      $('tokenTitle').textContent = `${symbol} · Token Detail`;
+      if(t.entry_zone?.low && t.entry_zone?.high){
+        $('entryZone').textContent = `$${fmt(t.entry_zone.low)} - $${fmt(t.entry_zone.high)}`;
+      }
+      $('momentumState').textContent = t.momentum_state || 'Unknown';
+      $('liquidityState').textContent = t.liquidity_state || 'Unknown';
+      $('decisionNote').textContent = `${symbol}: price $${fmt(t.price_usd)} · liquidity $${fmt(t.liquidity_usd)}`;
+      return t;
+    }
+  } catch(e){
+    $('decisionNote').textContent = `Lookup failed: ${e.message}`;
+  }
+  return null;
+}
+
 function openToken(symbol, address){
   state.selectedToken = {symbol, address};
   $('tokenTitle').textContent = `${symbol} · Token Detail`;
   $('decisionNote').textContent = `${symbol}: entry zone valid, momentum positive, liquidity healthy.`;
   switchScreen('token');
+  lookupToken(address);
   track('token_detail_open', {symbol, token: address});
 }
 
 $('tokenTradeNow')?.addEventListener('click', ()=>{
   if(state.selectedToken){ $('tokenInput').value = state.selectedToken.address; }
   switchScreen('trade');
+});
+
+$('tokenInput')?.addEventListener('blur', ()=>{
+  const token = ($('tokenInput').value || '').trim();
+  if(token.startsWith('0x')) lookupToken(token);
 });
 
 $('tokenWatchToggle')?.addEventListener('click', async ()=>{
@@ -198,7 +238,7 @@ async function renderPortfolio(){
   const root = $('positionsList');
   root.innerHTML = `<li class='muted'>Loading positions…</li>`;
   try{
-    const j = await apiFetch(`/api/history/${state.userId}`);
+    const j = await apiFetch(`/api/portfolio/${state.userId}`);
     if(!j.items?.length){ root.innerHTML = `<li class='muted'>No active positions yet</li>`; return; }
     root.innerHTML = j.items.slice(0,4).map(it=>`<li><b>${it.from}→${it.to}</b> · ${fmt(it.amount_in)}<br><small>${it.network} · perf ${Math.round(Math.random()*12-3)}%</small></li>`).join('');
   }catch{ root.innerHTML = `<li class='muted'>Failed to load positions</li>`; }
@@ -213,11 +253,29 @@ async function renderFollow(){
   root.innerHTML = `<li class='muted'>Loading wallets…</li>`;
   setTimeout(()=>{
     const wallets = [
-      {name:'SmartAlpha', action:'Bought PEPE 12m ago'},
-      {name:'DevTracker', action:'Moved liquidity on WIF'},
-      {name:'WhalePulse', action:'Added SOL exposure'},
+      {name:'SmartAlpha', action:'Bought PEPE 12m ago', address:'0x28C6c06298d514Db089934071355E5743bf21d60'},
+      {name:'DevTracker', action:'Moved liquidity on WIF', address:'0x21a31Ee1afC51d94C2eFcCAa2092aD1028285549'},
+      {name:'WhalePulse', action:'Added SOL exposure', address:'0xF977814e90dA44bFA03b6295A0616a897441aceC'},
     ];
-    root.innerHTML = wallets.map(w=>`<li><b>${w.name}</b><br><small>${w.action}</small><div class='row-inline'><button class='secondary small'>Follow</button><button class='secondary small'>Unfollow</button></div></li>`).join('');
+    root.innerHTML = wallets.map(w=>`<li><b>${w.name}</b><br><small>${w.action}</small><div class='row-inline'><button class='secondary small follow-btn' data-wallet='${w.address}' data-label='${w.name}'>Follow</button><button class='secondary small unfollow-btn' data-wallet='${w.address}' data-label='${w.name}'>Unfollow</button><button class='secondary small share-wallet-btn' data-wallet='${w.address}' data-label='${w.name}'>Share</button></div></li>`).join('');
+
+    root.querySelectorAll('.follow-btn').forEach(btn=>btn.addEventListener('click', async ()=>{
+      const wallet = btn.dataset.wallet;
+      await apiFetch('/api/watchlist/add_wallet',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({telegram_id:state.userId,network:state.network,wallet_address:wallet,wallet_label:btn.dataset.label||'SMART_WALLET'})});
+      track('opportunity_open', {source:'follow_wallet', wallet});
+      btn.textContent='Following';
+    }));
+
+    root.querySelectorAll('.unfollow-btn').forEach(btn=>btn.addEventListener('click', ()=>{
+      btn.textContent='Unfollowed';
+    }));
+
+    root.querySelectorAll('.share-wallet-btn').forEach(btn=>btn.addEventListener('click', ()=>{
+      const wallet = btn.dataset.wallet;
+      const deep = miniappDeepLink('wallet', wallet);
+      tgShare(`👛 Wallet signal: ${btn.dataset.label}`, deep);
+      track('opportunity_share', {source:'wallet_share', wallet});
+    }));
   },200);
 }
 
