@@ -4,8 +4,33 @@ const $ = (id) => document.getElementById(id);
 
 const API_BASE_URL = (window.API_BASE_URL || 'https://begun-spine-exam-shaved.trycloudflare.com').replace(/\/$/, '');
 
+const debugLog = [];
+function logDebug(kind, data={}){
+  const row = { ts: new Date().toISOString(), kind, ...data };
+  debugLog.push(row);
+  if (debugLog.length > 100) debugLog.shift();
+  console.log('[miniapp-debug]', row);
+  const el = $('runtimeDebug');
+  if (el) el.textContent = JSON.stringify(debugLog.slice(-12), null, 2);
+}
+
+function detectTelegramUserId(){
+  const unsafeId = tg?.initDataUnsafe?.user?.id;
+  if (unsafeId) return Number(unsafeId);
+  const initData = tg?.initData || '';
+  try {
+    const p = new URLSearchParams(initData);
+    const rawUser = p.get('user');
+    if (rawUser) {
+      const u = JSON.parse(rawUser);
+      if (u?.id) return Number(u.id);
+    }
+  } catch {}
+  return 0;
+}
+
 const state = {
-  userId: tg?.initDataUnsafe?.user?.id || 0,
+  userId: detectTelegramUserId(),
   network: 'base',
   lastIntent: null,
   selectedToken: null,
@@ -13,9 +38,11 @@ const state = {
 };
 
 if (!tg?.initData || !state.userId) {
+  logDebug('bootstrap_error', { hasTg: !!tg, hasInitData: !!tg?.initData, userId: state.userId });
   alert('Open this mini app via Telegram bot');
   throw new Error('Telegram auth missing');
 }
+logDebug('bootstrap_ok', { userId: state.userId, hasInitData: !!tg?.initData, apiBase: API_BASE_URL });
 
 function show(id, text, kind='muted'){ const el=$(id); if(!el) return; el.className=`quote ${kind}`; el.textContent=text; }
 function fmt(n){ return Number(n||0).toLocaleString(undefined,{maximumFractionDigits:6}); }
@@ -23,8 +50,10 @@ function fmt(n){ return Number(n||0).toLocaleString(undefined,{maximumFractionDi
 async function apiFetch(url, options={}){
   const headers = Object.assign({}, options.headers||{}, {'X-Telegram-Init-Data': tg.initData});
   const abs = url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
+  logDebug('api_request', { url: abs, method: options.method || 'GET' });
   const res = await fetch(abs, {...options, headers});
   let j={}; try{j=await res.json();}catch{}
+  logDebug('api_response', { url: abs, status: res.status, ok: res.ok, body: typeof j === 'object' ? j : String(j) });
   if(!res.ok) throw new Error(j.detail||j.error||`HTTP ${res.status}`);
   return j;
 }
@@ -241,7 +270,7 @@ async function renderPortfolio(){
     const j = await apiFetch(`/api/portfolio/${state.userId}`);
     if(!j.items?.length){ root.innerHTML = `<li class='muted'>No active positions yet</li>`; return; }
     root.innerHTML = j.items.slice(0,4).map(it=>`<li><b>${it.from}→${it.to}</b> · ${fmt(it.amount_in)}<br><small>${it.network} · perf ${Math.round(Math.random()*12-3)}%</small></li>`).join('');
-  }catch{ root.innerHTML = `<li class='muted'>Failed to load positions</li>`; }
+  }catch(e){ root.innerHTML = `<li class='muted'>Failed to load positions</li>`; logDebug('portfolio_error', { error: e.message, userId: state.userId }); }
 }
 
 ['protectReduce','protectExit','protectHold'].forEach(id=>$(id)?.addEventListener('click', ()=>{
@@ -281,10 +310,14 @@ async function renderFollow(){
 
 $('watchWalletBtn')?.addEventListener('click', async ()=>{
   const wallet = ($('walletWatchInput').value||'').trim();
-  if(!wallet.startsWith('0x')) return;
-  await apiFetch('/api/watchlist/add_wallet',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({telegram_id:state.userId,network:'base',wallet_address:wallet,wallet_label:'SMART_WALLET'})});
-  $('walletWatchInput').value='';
-  renderWatchlist();
+  if(!wallet.startsWith('0x')) { logDebug('button_blocked', { button: 'watchWalletBtn', reason: 'invalid_wallet' }); return; }
+  try {
+    await apiFetch('/api/watchlist/add_wallet',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({telegram_id:state.userId,network:'base',wallet_address:wallet,wallet_label:'SMART_WALLET'})});
+    $('walletWatchInput').value='';
+    renderWatchlist();
+  } catch(e){
+    logDebug('button_error', { button: 'watchWalletBtn', error: e.message });
+  }
 });
 
 async function renderWatchlist(){
@@ -293,7 +326,7 @@ async function renderWatchlist(){
     const j=await apiFetch(`/api/watchlist/${state.userId}`);
     if(!j.items?.length){ul.innerHTML='<li class="muted">Watchlist is empty</li>'; return;}
     ul.innerHTML = j.items.map(it=>`<li><b>${it.label||it.entity_type}</b> · ${it.network}<br><small>${it.entity_value}</small></li>`).join('');
-  } catch { ul.innerHTML='<li class="muted">Failed to load watchlist</li>'; }
+  } catch (e) { ul.innerHTML='<li class="muted">Failed to load watchlist</li>'; logDebug('watchlist_error', { error: e.message, userId: state.userId }); }
 }
 
 async function renderInviteLink(){
@@ -304,8 +337,9 @@ async function renderInviteLink(){
     const j = await apiFetch(`/api/beta/invite/link/${state.userId}`);
     state.inviteLink = j.invite?.link || '';
     box.textContent = state.inviteLink || 'Invite unavailable';
-  } catch {
+  } catch (e) {
     box.textContent = 'Invite unavailable';
+    logDebug('invite_error', { error: e.message, userId: state.userId });
   }
 }
 
@@ -320,7 +354,7 @@ async function renderAlerts(){
       track('alert_click', {deep_link: el.getAttribute('href')});
       track('alert_engagement', {action: 'open'});
     }));
-  } catch { ul.innerHTML='<li class="muted">Alerts unavailable</li>'; }
+  } catch (e) { ul.innerHTML='<li class="muted">Alerts unavailable</li>'; logDebug('alerts_error', { error: e.message, userId: state.userId }); }
 }
 
 (function init(){
