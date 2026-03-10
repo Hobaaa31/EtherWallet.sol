@@ -52,6 +52,7 @@ logDebug('runtime_fingerprint', {
   telegram_id: state.userId,
   telegram_detected: !!tg,
 });
+if ($('buildBadge')) $('buildBadge').textContent = `TEST BUILD · ${APP_VERSION}`;
 
 function show(id, text, kind='muted'){ const el=$(id); if(!el) return; el.className=`quote ${kind}`; el.textContent=text; }
 function fmt(n){ return Number(n||0).toLocaleString(undefined,{maximumFractionDigits:6}); }
