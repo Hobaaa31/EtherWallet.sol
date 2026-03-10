@@ -3,6 +3,8 @@ if (tg) { tg.ready(); tg.expand(); }
 const $ = (id) => document.getElementById(id);
 
 const API_BASE_URL = (window.API_BASE_URL || 'https://begun-spine-exam-shaved.trycloudflare.com').replace(/\/$/, '');
+const APP_VERSION = '2026-03-11-entry-unify-runtimefix';
+const FRONTEND_URL = window.location.href;
 
 const debugLog = [];
 function logDebug(kind, data={}){
@@ -43,6 +45,13 @@ if (!tg?.initData || !state.userId) {
   throw new Error('Telegram auth missing');
 }
 logDebug('bootstrap_ok', { userId: state.userId, hasInitData: !!tg?.initData, apiBase: API_BASE_URL });
+logDebug('runtime_fingerprint', {
+  APP_VERSION,
+  FRONTEND_URL,
+  API_BASE_URL,
+  telegram_id: state.userId,
+  telegram_detected: !!tg,
+});
 
 function show(id, text, kind='muted'){ const el=$(id); if(!el) return; el.className=`quote ${kind}`; el.textContent=text; }
 function fmt(n){ return Number(n||0).toLocaleString(undefined,{maximumFractionDigits:6}); }
