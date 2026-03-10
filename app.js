@@ -167,13 +167,14 @@ async function lookupToken(address){
     const t = await apiFetch(`/api/token/${address}?network=${state.network}`);
     if(t?.ok){
       const symbol = t.symbol || 'TOKEN';
+      state.selectedToken = { symbol, address: t.address || address, name: t.name || '' };
       $('tokenTitle').textContent = `${symbol} · Token Detail`;
       if(t.entry_zone?.low && t.entry_zone?.high){
         $('entryZone').textContent = `$${fmt(t.entry_zone.low)} - $${fmt(t.entry_zone.high)}`;
       }
       $('momentumState').textContent = t.momentum_state || 'Unknown';
       $('liquidityState').textContent = t.liquidity_state || 'Unknown';
-      $('decisionNote').textContent = `${symbol}: price $${fmt(t.price_usd)} · liquidity $${fmt(t.liquidity_usd)}`;
+      $('decisionNote').textContent = `${symbol}: price $${fmt(t.price_usd)} · liquidity $${fmt(t.liquidity_usd)} · ${t.source?.market_feed || 'feed unknown'}`;
       return t;
     }
   } catch(e){
@@ -242,9 +243,11 @@ $('confirmBtn')?.addEventListener('click', async ()=>{
 $('watchBtn')?.addEventListener('click', async ()=>{
   const token = ($('tokenInput').value||'').trim();
   if(!token.startsWith('0x')) return show('quote','Need token address 0x...','warn');
+  const tokenSymbol = state.selectedToken?.symbol || 'TOKEN';
   try{
-    await apiFetch('/api/watchlist/add',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({telegram_id:state.userId,network:'base',token_address:token,token_symbol:'TOKEN'})});
-    show('quote','Added to watchlist','ok');
+    await apiFetch('/api/watchlist/add',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({telegram_id:state.userId,network:'base',token_address:token,token_symbol:tokenSymbol})});
+    show('quote',`Added ${tokenSymbol} to watchlist`,'ok');
+    renderWatchlist();
   } catch(e){ show('quote','Watch failed: '+e.message,'warn'); }
 });
 
@@ -300,9 +303,14 @@ async function renderFollow(){
 
     root.querySelectorAll('.follow-btn').forEach(btn=>btn.addEventListener('click', async ()=>{
       const wallet = btn.dataset.wallet;
-      await apiFetch('/api/watchlist/add_wallet',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({telegram_id:state.userId,network:state.network,wallet_address:wallet,wallet_label:btn.dataset.label||'SMART_WALLET'})});
-      track('opportunity_open', {source:'follow_wallet', wallet});
-      btn.textContent='Following';
+      try{
+        await apiFetch('/api/watchlist/add_wallet',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({telegram_id:state.userId,network:state.network,wallet_address:wallet,wallet_label:btn.dataset.label||'SMART_WALLET'})});
+        track('opportunity_open', {source:'follow_wallet', wallet});
+        btn.textContent='Following';
+      } catch(e){
+        btn.textContent='Blocked';
+        logDebug('follow_error', { wallet, error: e.message });
+      }
     }));
 
     root.querySelectorAll('.unfollow-btn').forEach(btn=>btn.addEventListener('click', ()=>{
@@ -335,7 +343,18 @@ async function renderWatchlist(){
   try{
     const j=await apiFetch(`/api/watchlist/${state.userId}`);
     if(!j.items?.length){ul.innerHTML='<li class="muted">Watchlist is empty</li>'; return;}
-    ul.innerHTML = j.items.map(it=>`<li><b>${it.label||it.entity_type}</b> · ${it.network}<br><small>${it.entity_value}</small></li>`).join('');
+    const tokens = j.items.filter(x=>x.entity_type==='token');
+    const wallets = j.items.filter(x=>x.entity_type==='wallet');
+    const rows = [];
+    if(tokens.length){
+      rows.push(`<li class='muted'><b>🪙 Tokens</b></li>`);
+      rows.push(...tokens.map(it=>`<li><b>${it.label||'TOKEN'}</b> · ${it.network}<br><small>${it.entity_value}</small></li>`));
+    }
+    if(wallets.length){
+      rows.push(`<li class='muted'><b>👛 Wallets</b></li>`);
+      rows.push(...wallets.map(it=>`<li><b>${it.label||'WALLET'}</b> · ${it.network}<br><small>${it.entity_value}</small></li>`));
+    }
+    ul.innerHTML = rows.join('');
   } catch (e) { ul.innerHTML='<li class="muted">Failed to load watchlist</li>'; logDebug('watchlist_error', { error: e.message, userId: state.userId }); }
 }
 
