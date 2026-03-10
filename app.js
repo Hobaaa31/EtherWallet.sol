@@ -2,7 +2,7 @@ const tg = window.Telegram?.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
 const $ = (id) => document.getElementById(id);
 
-const API_BASE_URL = (window.API_BASE_URL || 'https://begun-spine-exam-shaved.trycloudflare.com').replace(/\/$/, '');
+const API_BASE_URL = (window.API_BASE_URL || 'https://193-233-85-156.sslip.io').replace(/\/$/, '');
 const APP_VERSION = '2026-03-11-entry-unify-runtimefix';
 const FRONTEND_URL = window.location.href;
 
