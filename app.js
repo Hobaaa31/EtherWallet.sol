@@ -2,7 +2,7 @@ const tg = window.Telegram?.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
 const $ = (id) => document.getElementById(id);
 
-const API_BASE_URL = (window.API_BASE_URL || 'https://1318222.xorek.cloud:8000').replace(/\/$/, '');
+const API_BASE_URL = (window.API_BASE_URL || 'https://1318222.xorek.cloud').replace(/\/$/, '');
 
 const state = {
   userId: tg?.initDataUnsafe?.user?.id || 0,
