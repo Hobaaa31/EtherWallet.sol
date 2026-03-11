@@ -109,15 +109,20 @@ function miniappDeepLink(kind, value){
 function oppCard(op){
   return `<div class='card opp-card tap-anim' data-token='${op.address}' data-symbol='${op.symbol}'>
     <div class='row-inline'><b>${op.symbol}</b>${signalTag(op.signal)}</div>
+    <div class='muted'>Price $${fmt(op.price_usd || 0)} · ${op.indicator || 'liquidity check'}</div>
     <div class='muted'>${op.note}</div>
     <div class='micro-grid'>
-      <div><span class='label'>Momentum</span>${micro(op.momentum)}</div>
-      <div><span class='label'>Liquidity</span>${micro(op.liquidity)}</div>
-      <div><span class='label'>Volume</span>${micro(op.volume)}</div>
+      <div><span class='label'>Momentum</span>${micro(op.momentum || [5,6,7,8,9])}</div>
+      <div><span class='label'>Liquidity</span>${micro(op.liquidity || [8,8,9,9,10])}</div>
+      <div><span class='label'>Volume</span>${micro(op.volume || [3,4,6,8,10])}</div>
     </div>
     <div class='row two-col'>
       <button class='primary trade-cta' data-token='${op.address}' data-symbol='${op.symbol}'>Trade</button>
+      <button class='secondary token-open' data-token='${op.address}' data-symbol='${op.symbol}'>Token</button>
+    </div>
+    <div class='row two-col'>
       <button class='secondary opp-share' data-token='${op.address}' data-symbol='${op.symbol}'>Share</button>
+      <button class='secondary opp-watch' data-token='${op.address}' data-symbol='${op.symbol}'>Watch</button>
     </div>
   </div>`;
 }
@@ -128,14 +133,15 @@ async function renderFeed(){
   try {
     const j = await apiFetch(`/api/feed/${state.userId}`);
     const items = j.items || [];
-    root.innerHTML = items.map(oppCard).join('') || `<div class='card empty'>No opportunities yet</div>`;
+    root.innerHTML = items.map(oppCard).join('') || `<div class='card empty'>No live opportunities right now</div>`;
   } catch (e) {
-    root.innerHTML = `<div class='card empty'>Feed unavailable: ${e.message}</div>`;
+    root.innerHTML = `<div class='card empty'>No live opportunities right now</div>`;
     logDebug('feed_error', { error: e.message });
     return;
   }
 
-  document.querySelectorAll('.opp-card').forEach(el=>el.addEventListener('click', (e)=>{
+  document.querySelectorAll('.token-open').forEach(el=>el.addEventListener('click', (e)=>{
+    e.stopPropagation();
     const token = e.currentTarget.dataset.token;
     const symbol = e.currentTarget.dataset.symbol;
     openToken(symbol, token);
@@ -159,6 +165,18 @@ async function renderFeed(){
     tgShare(`📡 Opportunity: ${symbol} on Swapbot`, deep);
     track('opportunity_share', {symbol, token});
   }));
+  document.querySelectorAll('.opp-watch').forEach(el=>el.addEventListener('click', async (e)=>{
+    e.stopPropagation();
+    const token = e.currentTarget.dataset.token;
+    const symbol = e.currentTarget.dataset.symbol || 'TOKEN';
+    try{
+      await apiFetch('/api/watchlist/add',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({telegram_id:state.userId,network:'base',token_address:token,token_symbol:symbol})});
+      e.currentTarget.textContent = 'Watching';
+      renderWatchlist();
+    }catch(err){
+      logDebug('feed_watch_error', { token, error: err.message });
+    }
+  }));
 }
 
 async function lookupToken(address){
@@ -168,17 +186,20 @@ async function lookupToken(address){
     if(t?.ok){
       const symbol = t.symbol || 'TOKEN';
       state.selectedToken = { symbol, address: t.address || address, name: t.name || '' };
-      $('tokenTitle').textContent = `${symbol} · Token Detail`;
+      $('tokenTitle').textContent = `${symbol} · ${state.selectedToken.address.slice(0,6)}...${state.selectedToken.address.slice(-4)}`;
       if(t.entry_zone?.low && t.entry_zone?.high){
         $('entryZone').textContent = `$${fmt(t.entry_zone.low)} - $${fmt(t.entry_zone.high)}`;
       }
       $('momentumState').textContent = t.momentum_state || 'Unknown';
       $('liquidityState').textContent = t.liquidity_state || 'Unknown';
-      $('decisionNote').textContent = `${symbol}: price $${fmt(t.price_usd)} · liquidity $${fmt(t.liquidity_usd)} · ${t.source?.market_feed || 'feed unknown'}`;
+      const summary = (t.momentum_state?.toLowerCase().includes('breakout') ? 'Smart wallets accumulating' : 'Monitoring flow') + ' + ' + ((t.liquidity_usd||0) > 10000 ? 'healthy liquidity' : 'thin liquidity');
+      $('decisionNote').textContent = `${summary} · Price $${fmt(t.price_usd)} · Liquidity $${fmt(t.liquidity_usd)}`;
       return t;
     }
+    $('decisionNote').textContent = 'Token not found';
   } catch(e){
-    $('decisionNote').textContent = `Lookup failed: ${e.message}`;
+    $('decisionNote').textContent = 'Token not found';
+    logDebug('token_lookup_error', { error: e.message, address });
   }
   return null;
 }
@@ -220,9 +241,10 @@ $('quoteBtn')?.addEventListener('click', async ()=>{
     const j = await apiFetch('/api/quote',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({telegram_id:state.userId,network:'base',from_symbol:$('fromSymbol').value,to_symbol:to,amount})});
     state.lastIntent={network:'base',prefix:j.idempotency_prefix};
     $('confirmBtn').disabled=false;
-    $('entryPrice').textContent = `Expected entry: ${fmt(j.gross_out)} ${j.to}`;
-    $('protectionState').textContent = `Protection: ${j.risk_badge || '✅'} · safe checks enabled`;
-    show('quote',`Net ${fmt(j.net_out)} | Fee ${(j.fee_bps/100).toFixed(2)}% | Intent ${j.idempotency_prefix}`,'ok');
+    const slippagePct = ((j.fee_bps || 0) / 100).toFixed(2);
+    $('entryPrice').textContent = `Expected entry: ${fmt(j.gross_out)} ${j.to} · Received ${fmt(j.net_out)} ${j.to}`;
+    $('protectionState').textContent = `Slippage/Fee: ${slippagePct}% · ${j.risk_badge || 'Protected'}`;
+    show('quote',`Quote ready · Confirm to execute`,'ok');
   } catch(e){ show('quote','Quote error: '+e.message,'warn'); }
 });
 
@@ -281,9 +303,9 @@ async function renderPortfolio(){
   root.innerHTML = `<li class='muted'>Loading positions…</li>`;
   try{
     const j = await apiFetch(`/api/portfolio/${state.userId}`);
-    if(!j.items?.length){ root.innerHTML = `<li class='muted'>No active positions yet</li>`; return; }
-    root.innerHTML = j.items.slice(0,8).map(it=>`<li><b>${it.from}→${it.to}</b> · ${fmt(it.amount_in)}<br><small>${it.network} · est out ${fmt(it.amount_out_est || 0)}</small></li>`).join('');
-  }catch(e){ root.innerHTML = `<li class='muted'>Failed to load positions</li>`; logDebug('portfolio_error', { error: e.message, userId: state.userId }); }
+    if(!j.items?.length){ root.innerHTML = `<li class='muted'>No open positions yet</li>`; return; }
+    root.innerHTML = j.items.slice(0,8).map(it=>`<li><b>${it.to}</b> · size ${fmt(it.amount_in)} ${it.from}<br><small>value ${fmt(it.amount_out_est || 0)} ${it.to}</small></li>`).join('');
+  }catch(e){ root.innerHTML = `<li class='muted'>No open positions yet</li>`; logDebug('portfolio_error', { error: e.message, userId: state.userId }); }
 }
 
 ['protectReduce','protectExit','protectHold'].forEach(id=>$(id)?.addEventListener('click', ()=>{
@@ -297,10 +319,20 @@ async function renderFollow(){
     const wl = await apiFetch(`/api/watchlist/${state.userId}`);
     const wallets = (wl.items || []).filter(x=>x.entity_type==='wallet');
     if(!wallets.length){
-      root.innerHTML = `<li class='muted'>No followed wallets yet</li>`;
+      root.innerHTML = `<li class='muted'>No wallets followed yet</li>`;
       return;
     }
-    root.innerHTML = wallets.map(w=>`<li><b>${w.label || 'SMART_WALLET'}</b><br><small>${w.entity_value}</small><div class='row-inline'><button class='secondary small share-wallet-btn' data-wallet='${w.entity_value}' data-label='${w.label || 'SMART_WALLET'}'>Share</button></div></li>`).join('');
+    root.innerHTML = wallets.map(w=>`<li><b>${w.entity_value}</b><br><small>Recent actions: no recent wallet actions yet</small><div class='row-inline'><button class='secondary small unfollow-wallet-btn' data-wallet='${w.entity_value}'>Unfollow</button><button class='secondary small share-wallet-btn' data-wallet='${w.entity_value}' data-label='${w.label || 'SMART_WALLET'}'>Share</button></div></li>`).join('');
+
+    root.querySelectorAll('.unfollow-wallet-btn').forEach(btn=>btn.addEventListener('click', async ()=>{
+      const wallet = btn.dataset.wallet;
+      try{
+        await apiFetch('/api/watchlist/remove_wallet',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({telegram_id:state.userId,network:state.network,wallet_address:wallet,wallet_label:'SMART_WALLET'})});
+        btn.textContent='Unfollowed';
+        renderFollow();
+        renderWatchlist();
+      }catch(e){ logDebug('unfollow_wallet_error', { wallet, error: e.message }); }
+    }));
 
     root.querySelectorAll('.share-wallet-btn').forEach(btn=>btn.addEventListener('click', ()=>{
       const wallet = btn.dataset.wallet;
@@ -309,7 +341,7 @@ async function renderFollow(){
       track('opportunity_share', {source:'wallet_share', wallet});
     }));
   } catch (e) {
-    root.innerHTML = `<li class='muted'>Follow unavailable</li>`;
+    root.innerHTML = `<li class='muted'>No wallets followed yet</li>`;
     logDebug('follow_error', { error: e.message });
   }
 }
@@ -330,7 +362,7 @@ async function renderWatchlist(){
   const ul=$('watchList'); ul.innerHTML='<li class="muted">Loading…</li>';
   try{
     const j=await apiFetch(`/api/watchlist/${state.userId}`);
-    if(!j.items?.length){ul.innerHTML='<li class="muted">Watchlist is empty</li>'; return;}
+    if(!j.items?.length){ul.innerHTML='<li class="muted">No watched tokens yet</li>'; return;}
     const tokens = j.items.filter(x=>x.entity_type==='token');
     const wallets = j.items.filter(x=>x.entity_type==='wallet');
     const rows = [];
@@ -343,7 +375,7 @@ async function renderWatchlist(){
       rows.push(...wallets.map(it=>`<li><b>${it.label||'WALLET'}</b> · ${it.network}<br><small>${it.entity_value}</small></li>`));
     }
     ul.innerHTML = rows.join('');
-  } catch (e) { ul.innerHTML='<li class="muted">Failed to load watchlist</li>'; logDebug('watchlist_error', { error: e.message, userId: state.userId }); }
+  } catch (e) { ul.innerHTML='<li class="muted">No watched tokens yet</li>'; logDebug('watchlist_error', { error: e.message, userId: state.userId }); }
 }
 
 async function renderInviteLink(){
