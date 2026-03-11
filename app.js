@@ -64,7 +64,7 @@ async function apiFetch(url, options={}){
   const res = await fetch(abs, {...options, headers});
   let j={}; try{j=await res.json();}catch{}
   logDebug('api_response', { url: abs, status: res.status, ok: res.ok, body: typeof j === 'object' ? j : String(j) });
-  if(!res.ok) throw new Error(j.detail||j.error||`HTTP ${res.status}`);
+  if(!res.ok) throw new Error(j?.error?.message || j.detail || j.error || `HTTP ${res.status}`);
   return j;
 }
 
@@ -132,7 +132,7 @@ async function renderFeed(){
   root.innerHTML = cardSkeleton() + cardSkeleton();
   try {
     const j = await apiFetch(`/api/feed/${state.userId}`);
-    const items = j.items || [];
+    const items = j.data?.opportunities || j.opportunities || j.items || [];
     root.innerHTML = items.map(oppCard).join('') || `<div class='card empty'>No live opportunities right now</div>`;
   } catch (e) {
     root.innerHTML = `<div class='card empty'>No live opportunities right now</div>`;
@@ -303,8 +303,9 @@ async function renderPortfolio(){
   root.innerHTML = `<li class='muted'>Loading positions…</li>`;
   try{
     const j = await apiFetch(`/api/portfolio/${state.userId}`);
-    if(!j.items?.length){ root.innerHTML = `<li class='muted'>No open positions yet</li>`; return; }
-    root.innerHTML = j.items.slice(0,8).map(it=>`<li><b>${it.to}</b> · size ${fmt(it.amount_in)} ${it.from}<br><small>value ${fmt(it.amount_out_est || 0)} ${it.to}</small></li>`).join('');
+    const positions = j.data?.positions || j.positions || j.items || [];
+    if(!positions.length){ root.innerHTML = `<li class='muted'>No open positions yet</li>`; return; }
+    root.innerHTML = positions.slice(0,8).map(it=>`<li><b>${it.to}</b> · size ${fmt(it.amount_in)} ${it.from}<br><small>value ${fmt(it.amount_out_est || 0)} ${it.to}</small></li>`).join('');
   }catch(e){ root.innerHTML = `<li class='muted'>No open positions yet</li>`; logDebug('portfolio_error', { error: e.message, userId: state.userId }); }
 }
 
@@ -317,12 +318,15 @@ async function renderFollow(){
   root.innerHTML = `<li class='muted'>Loading wallets…</li>`;
   try {
     const wl = await apiFetch(`/api/watchlist/${state.userId}`);
-    const wallets = (wl.items || []).filter(x=>x.entity_type==='wallet');
+    const wallets = wl.data?.watched_wallets || wl.watched_wallets || (wl.items || []).filter(x=>x.entity_type==='wallet');
     if(!wallets.length){
       root.innerHTML = `<li class='muted'>No wallets followed yet</li>`;
       return;
     }
-    root.innerHTML = wallets.map(w=>`<li><b>${w.entity_value}</b><br><small>Recent actions: no recent wallet actions yet</small><div class='row-inline'><button class='secondary small unfollow-wallet-btn' data-wallet='${w.entity_value}'>Unfollow</button><button class='secondary small share-wallet-btn' data-wallet='${w.entity_value}' data-label='${w.label || 'SMART_WALLET'}'>Share</button></div></li>`).join('');
+    const fa = await apiFetch(`/api/follow/actions/${state.userId}`);
+    const actions = fa.data?.actions || fa.actions || [];
+    const byWallet = new Map(actions.map(a=>[(a.wallet_address||'').toLowerCase(), a.action || 'No recent actions yet']));
+    root.innerHTML = wallets.map(w=>`<li><b>${w.entity_value}</b><br><small>Recent actions: ${byWallet.get((w.entity_value||'').toLowerCase()) || 'No recent actions yet'}</small><div class='row-inline'><button class='secondary small unfollow-wallet-btn' data-wallet='${w.entity_value}'>Unfollow</button><button class='secondary small share-wallet-btn' data-wallet='${w.entity_value}' data-label='${w.label || 'SMART_WALLET'}'>Share</button></div></li>`).join('');
 
     root.querySelectorAll('.unfollow-wallet-btn').forEach(btn=>btn.addEventListener('click', async ()=>{
       const wallet = btn.dataset.wallet;
@@ -362,9 +366,9 @@ async function renderWatchlist(){
   const ul=$('watchList'); ul.innerHTML='<li class="muted">Loading…</li>';
   try{
     const j=await apiFetch(`/api/watchlist/${state.userId}`);
-    if(!j.items?.length){ul.innerHTML='<li class="muted">No watched tokens yet</li>'; return;}
-    const tokens = j.items.filter(x=>x.entity_type==='token');
-    const wallets = j.items.filter(x=>x.entity_type==='wallet');
+    const tokens = j.data?.watched_tokens || j.watched_tokens || (j.items || []).filter(x=>x.entity_type==='token');
+    const wallets = j.data?.watched_wallets || j.watched_wallets || (j.items || []).filter(x=>x.entity_type==='wallet');
+    if(!tokens.length && !wallets.length){ul.innerHTML='<li class="muted">No watched tokens yet</li>'; return;}
     const rows = [];
     if(tokens.length){
       rows.push(`<li class='muted'><b>🪙 Tokens</b></li>`);
@@ -384,7 +388,8 @@ async function renderInviteLink(){
   box.textContent = 'Generating invite link...';
   try{
     const j = await apiFetch(`/api/beta/invite/link/${state.userId}`);
-    state.inviteLink = j.invite?.link || '';
+    const invite = j.data?.invite || j.invite || null;
+    state.inviteLink = invite?.link || '';
     box.textContent = state.inviteLink || 'Invite unavailable';
   } catch (e) {
     box.textContent = 'Invite unavailable';
@@ -397,8 +402,9 @@ async function renderAlerts(){
   try{
     await apiFetch(`/api/smart-alerts/run/${state.userId}`,{method:'POST'});
     const j = await apiFetch(`/api/smart-alerts/${state.userId}`);
-    if(!j.items?.length){ ul.innerHTML='<li class="muted">No alerts yet</li>'; return; }
-    ul.innerHTML = j.items.slice(0,6).map((a,idx)=>`<li><b>${a.alert_type}</b> · ${a.severity}<br>${a.message}<br><a href='${a.deep_link}' target='_blank' data-alert='${idx}'>Open</a></li>`).join('');
+    const alerts = j.data?.alerts || j.alerts || j.items || [];
+    if(!alerts.length){ ul.innerHTML='<li class="muted">No alerts yet</li>'; return; }
+    ul.innerHTML = alerts.slice(0,6).map((a,idx)=>`<li><b>${a.alert_type}</b> · ${a.severity}<br>${a.message}<br><a href='${a.deep_link}' target='_blank' data-alert='${idx}'>Open</a></li>`).join('');
     ul.querySelectorAll('a[data-alert]').forEach((el)=>el.addEventListener('click', ()=>{
       track('alert_click', {deep_link: el.getAttribute('href')});
       track('alert_engagement', {action: 'open'});
