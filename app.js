@@ -122,43 +122,43 @@ function oppCard(op){
   </div>`;
 }
 
-function feedMock(){
-  return [
-    {symbol:'PEPE', address:'0xaaaabbbbccccddddeeeeffff0000111122223333', signal:'Momentum Breakout', note:'Smart wallets accumulating', momentum:[4,8,11,15,18], liquidity:[9,10,11,10,12], volume:[3,6,9,12,16]},
-    {symbol:'WIF', address:'0xbbbbccccddddeeeeffff00001111222233334444', signal:'Smart Wallet Buy', note:'Fresh high-volume entry', momentum:[5,7,9,13,14], liquidity:[8,8,9,11,13], volume:[2,4,8,10,12]},
-  ];
-}
-
-function renderFeed(){
+async function renderFeed(){
   const root = $('feedList');
   root.innerHTML = cardSkeleton() + cardSkeleton();
-  setTimeout(()=>{
-    root.innerHTML = feedMock().map(oppCard).join('') || `<div class='card empty'>No opportunities yet</div>`;
-    document.querySelectorAll('.opp-card').forEach(el=>el.addEventListener('click', (e)=>{
-      const token = e.currentTarget.dataset.token;
-      const symbol = e.currentTarget.dataset.symbol;
-      openToken(symbol, token);
-      track('opportunity_open', {symbol, token});
-    }));
-    document.querySelectorAll('.trade-cta').forEach(el=>el.addEventListener('click', (e)=>{
-      e.stopPropagation();
-      const token = e.currentTarget.dataset.token;
-      const symbol = e.currentTarget.dataset.symbol;
-      state.selectedToken = {symbol, address: token};
-      $('tokenInput').value = token;
-      switchScreen('trade');
-      lookupToken(token);
-      track('trade_attempt', {source:'feed_trade_cta', symbol, token});
-    }));
-    document.querySelectorAll('.opp-share').forEach(el=>el.addEventListener('click', (e)=>{
-      e.stopPropagation();
-      const token = e.currentTarget.dataset.token;
-      const symbol = e.currentTarget.dataset.symbol;
-      const deep = miniappDeepLink('token', token);
-      tgShare(`📡 Opportunity: ${symbol} on Swapbot`, deep);
-      track('opportunity_share', {symbol, token});
-    }));
-  }, 250);
+  try {
+    const j = await apiFetch(`/api/feed/${state.userId}`);
+    const items = j.items || [];
+    root.innerHTML = items.map(oppCard).join('') || `<div class='card empty'>No opportunities yet</div>`;
+  } catch (e) {
+    root.innerHTML = `<div class='card empty'>Feed unavailable: ${e.message}</div>`;
+    logDebug('feed_error', { error: e.message });
+    return;
+  }
+
+  document.querySelectorAll('.opp-card').forEach(el=>el.addEventListener('click', (e)=>{
+    const token = e.currentTarget.dataset.token;
+    const symbol = e.currentTarget.dataset.symbol;
+    openToken(symbol, token);
+    track('opportunity_open', {symbol, token});
+  }));
+  document.querySelectorAll('.trade-cta').forEach(el=>el.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    const token = e.currentTarget.dataset.token;
+    const symbol = e.currentTarget.dataset.symbol;
+    state.selectedToken = {symbol, address: token};
+    $('tokenInput').value = token;
+    switchScreen('trade');
+    lookupToken(token);
+    track('trade_attempt', {source:'feed_trade_cta', symbol, token});
+  }));
+  document.querySelectorAll('.opp-share').forEach(el=>el.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    const token = e.currentTarget.dataset.token;
+    const symbol = e.currentTarget.dataset.symbol;
+    const deep = miniappDeepLink('token', token);
+    tgShare(`📡 Opportunity: ${symbol} on Swapbot`, deep);
+    track('opportunity_share', {symbol, token});
+  }));
 }
 
 async function lookupToken(address){
@@ -282,7 +282,7 @@ async function renderPortfolio(){
   try{
     const j = await apiFetch(`/api/portfolio/${state.userId}`);
     if(!j.items?.length){ root.innerHTML = `<li class='muted'>No active positions yet</li>`; return; }
-    root.innerHTML = j.items.slice(0,4).map(it=>`<li><b>${it.from}→${it.to}</b> · ${fmt(it.amount_in)}<br><small>${it.network} · perf ${Math.round(Math.random()*12-3)}%</small></li>`).join('');
+    root.innerHTML = j.items.slice(0,8).map(it=>`<li><b>${it.from}→${it.to}</b> · ${fmt(it.amount_in)}<br><small>${it.network} · est out ${fmt(it.amount_out_est || 0)}</small></li>`).join('');
   }catch(e){ root.innerHTML = `<li class='muted'>Failed to load positions</li>`; logDebug('portfolio_error', { error: e.message, userId: state.userId }); }
 }
 
@@ -293,29 +293,14 @@ async function renderPortfolio(){
 async function renderFollow(){
   const root = $('followList');
   root.innerHTML = `<li class='muted'>Loading wallets…</li>`;
-  setTimeout(()=>{
-    const wallets = [
-      {name:'SmartAlpha', action:'Bought PEPE 12m ago', address:'0x28C6c06298d514Db089934071355E5743bf21d60'},
-      {name:'DevTracker', action:'Moved liquidity on WIF', address:'0x21a31Ee1afC51d94C2eFcCAa2092aD1028285549'},
-      {name:'WhalePulse', action:'Added SOL exposure', address:'0xF977814e90dA44bFA03b6295A0616a897441aceC'},
-    ];
-    root.innerHTML = wallets.map(w=>`<li><b>${w.name}</b><br><small>${w.action}</small><div class='row-inline'><button class='secondary small follow-btn' data-wallet='${w.address}' data-label='${w.name}'>Follow</button><button class='secondary small unfollow-btn' data-wallet='${w.address}' data-label='${w.name}'>Unfollow</button><button class='secondary small share-wallet-btn' data-wallet='${w.address}' data-label='${w.name}'>Share</button></div></li>`).join('');
-
-    root.querySelectorAll('.follow-btn').forEach(btn=>btn.addEventListener('click', async ()=>{
-      const wallet = btn.dataset.wallet;
-      try{
-        await apiFetch('/api/watchlist/add_wallet',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({telegram_id:state.userId,network:state.network,wallet_address:wallet,wallet_label:btn.dataset.label||'SMART_WALLET'})});
-        track('opportunity_open', {source:'follow_wallet', wallet});
-        btn.textContent='Following';
-      } catch(e){
-        btn.textContent='Blocked';
-        logDebug('follow_error', { wallet, error: e.message });
-      }
-    }));
-
-    root.querySelectorAll('.unfollow-btn').forEach(btn=>btn.addEventListener('click', ()=>{
-      btn.textContent='Unfollowed';
-    }));
+  try {
+    const wl = await apiFetch(`/api/watchlist/${state.userId}`);
+    const wallets = (wl.items || []).filter(x=>x.entity_type==='wallet');
+    if(!wallets.length){
+      root.innerHTML = `<li class='muted'>No followed wallets yet</li>`;
+      return;
+    }
+    root.innerHTML = wallets.map(w=>`<li><b>${w.label || 'SMART_WALLET'}</b><br><small>${w.entity_value}</small><div class='row-inline'><button class='secondary small share-wallet-btn' data-wallet='${w.entity_value}' data-label='${w.label || 'SMART_WALLET'}'>Share</button></div></li>`).join('');
 
     root.querySelectorAll('.share-wallet-btn').forEach(btn=>btn.addEventListener('click', ()=>{
       const wallet = btn.dataset.wallet;
@@ -323,7 +308,10 @@ async function renderFollow(){
       tgShare(`👛 Wallet signal: ${btn.dataset.label}`, deep);
       track('opportunity_share', {source:'wallet_share', wallet});
     }));
-  },200);
+  } catch (e) {
+    root.innerHTML = `<li class='muted'>Follow unavailable</li>`;
+    logDebug('follow_error', { error: e.message });
+  }
 }
 
 $('watchWalletBtn')?.addEventListener('click', async ()=>{
